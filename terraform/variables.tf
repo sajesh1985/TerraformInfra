@@ -1,10 +1,14 @@
-variable "aws_region" {
-  description = "AWS region"
-  type        = string
-  default     = "us-east-1"
+variable "region" {
+  default = "us-east-1"
 }
 
-variable "bucket_name" {
-  description = "S3 bucket name"
-  type        = string
+variable "app_name" {
+  default = "fastapi-bedrock"
 }
+
+variable "vpc_id" {}
+variable "public_subnets" {
+  type = list(string)
+}
+
+variable "dynamodb_table_arn" {}
