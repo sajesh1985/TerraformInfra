@@ -1,34 +1,38 @@
-name: Terraform CI/CD
+name: Terraform Deploy (FastAPI → ECS → API Gateway)
 
 on:
-  pull_request:
-    branches: [ "main" ]
   push:
-    branches: [ "main" ]
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  APP_NAME: fastapi-bedrock
 
 jobs:
-  terraform:
+  deploy:
     runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: terraform
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      # ---------- AWS AUTH (OIDC) ----------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::831873947473:role/GitHubActionsTerraformRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ---------- TERRAFORM ----------
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.6
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
 
       - name: Terraform Init
         run: terraform init
@@ -37,9 +41,21 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        if: github.event_name == 'pull_request'
         run: terraform plan
 
       - name: Terraform Apply
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve
+
+      # ---------- ECR LOGIN ----------
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ---------- BUILD & PUSH IMAGE ----------
+      - name: Build and Push Docker image
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REPO=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_NAME}
+
+          docker build -t ${APP_NAME}:latest .
+          docker tag ${APP_NAME}:latest ${ECR_REPO}:latest
+          docker push ${ECR_REPO}:latest
